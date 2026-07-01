@@ -109,14 +109,15 @@ if [ -n "$SPEC_TEXT" ]; then
   while IFS= read -r line; do
     stripped="${line#-}"
     stripped="${stripped# }"; stripped="${stripped# }"
-    stripped="${stripped#\`}"; stripped="${stripped%\`}"
-    stripped="${stripped%% *}"
+    stripped="${stripped#\`}"; stripped="${stripped%% *}"
+    stripped="${stripped%\`}"
     if [ -z "$stripped" ] || [[ "$stripped" == "<"* ]]; then continue; fi
     RELATED_FILES+=("$stripped")
   done <<< "$RELATED_SECTION"
 
   TOTAL_BUDGET=40000; PER_FILE_BUDGET=8000; bytes_loaded=0
-  for relpath in "${RELATED_FILES[@]}"; do
+  # bash 3.2-safe: expands to nothing (not an "unbound variable" error) when the array is empty
+  for relpath in ${RELATED_FILES[@]+"${RELATED_FILES[@]}"}; do
     fullpath="$REPO_ROOT/$relpath"
     if [ ! -f "$fullpath" ]; then RELATED_SKIPPED+=("$relpath (not found)"); continue; fi
     if [ "$bytes_loaded" -ge "$TOTAL_BUDGET" ]; then RELATED_SKIPPED+=("$relpath (total budget exhausted)"); continue; fi
