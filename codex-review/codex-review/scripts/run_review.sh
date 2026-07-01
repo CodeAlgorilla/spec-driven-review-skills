@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# run_review.sh — Send a git diff + context to Codex (gpt-5.5, xhigh reasoning) for review.
+#
+# v1.4.0+: supports a "Related code" section in the spec. Files listed there
+# are read in full and included in the bundle. The reviewer can also use shell
+# tools (find/grep/cat) via codex's read-only sandbox to explore beyond the
+# bundle when needed.
+
+set -euo pipefail
+
+ITERATION="${1:-1}"
+shift || true
+
+BASE_REF=""
+EXTRA_CONTEXT="${CODEX_REVIEW_CONTEXT:-}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --context)    EXTRA_CONTEXT="${2:-}"; shift 2 ;;
+    --context=*)  EXTRA_CONTEXT="${1#--context=}"; shift ;;
+    *)            if [ -z "$BASE_REF" ]; then BASE_REF="$1"; fi; shift ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+PROMPT_FILE="$SKILL_DIR/references/reviewer_prompt.md"
+
+if ! command -v codex >/dev/null 2>&1; then
+  cat <<EOF
+STATUS: ERROR
+SUMMARY: codex CLI not found in PATH.
+Install: npm install -g @openai/codex
+Then: codex login
+EOF
+  exit 127
+fi
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "STATUS: ERROR"; echo "SUMMARY: Not inside a git repository."; exit 1
+fi
+if [ ! -f "$PROMPT_FILE" ]; then
+  echo "STATUS: ERROR"; echo "SUMMARY: Reviewer prompt missing at: $PROMPT_FILE"; exit 1
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+detect_default_branch() {
+  local b
+  b=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || true)
+  if [ -n "${b:-}" ]; then echo "$b"; return; fi
+  if git show-ref --verify --quiet refs/heads/main;   then echo "main";   return; fi
+  if git show-ref --verify --quiet refs/heads/master; then echo "master"; return; fi
+  echo ""
+}
+
+if [ -n "$BASE_REF" ]; then
+  DIFF=$(git diff "${BASE_REF}...HEAD" 2>/dev/null || git diff "${BASE_REF}")
+  SCOPE="changes vs ${BASE_REF}"
+  COMMIT_RANGE="${BASE_REF}..HEAD"
+else
+  DEFAULT_BRANCH=$(detect_default_branch)
+  CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+  if [ -n "$CURRENT_BRANCH" ] && [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
+    if git show-ref --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH"; then
+      BASE="origin/$DEFAULT_BRANCH"
+    else
+      BASE="$DEFAULT_BRANCH"
+    fi
+    DIFF=$(git diff "${BASE}...HEAD")
+    SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (three-dot diff)"
+    COMMIT_RANGE="${BASE}..HEAD"
+    UNCOMMITTED=$(git diff HEAD)
+    if [ -n "$UNCOMMITTED" ]; then
+      DIFF="${DIFF}
+
+# === Uncommitted changes (not yet on the branch) ===
+${UNCOMMITTED}"
+      SCOPE="${SCOPE} + uncommitted changes"
+    fi
+  else
+    DIFF=$(git diff HEAD)
+    SCOPE="uncommitted changes (staged + unstaged) vs HEAD"
+    COMMIT_RANGE=""
+  fi
+fi
+
+if [ -z "$DIFF" ]; then
+  echo "STATUS: CLEAN"
+  echo "SUMMARY: No changes detected to review (scope: $SCOPE)."
+  exit 0
+fi
+
+truncate_str() {
+  local s="$1" max="$2"
+  if [ ${#s} -gt "$max" ]; then
+    echo "${s:0:$max}"
+    echo ""
+    echo "[... truncated, ${#s} chars total ...]"
+  else
+    echo "$s"
+  fi
+}
+
+# Spec
+SPEC_TEXT=""
+SPEC_PATH=""
+SPEC_SCOPE=""
+for spec_candidate in \
+  "$REPO_ROOT/.claude/review-spec.md" \
+  "$REPO_ROOT/.codex-review/spec.md"; do
+  if [ -f "$spec_candidate" ]; then
+    SPEC_PATH="${spec_candidate#$REPO_ROOT/}"
+    [[ "$spec_candidate" == *"/.claude/"* ]] && SPEC_SCOPE="branch-level" || SPEC_SCOPE="project-level"
+    SPEC_TEXT=$(truncate_str "$(cat "$spec_candidate")" 12000)
+    break
+  fi
+done
+
+# Related code
+RELATED_CODE_TEXT=""
+RELATED_LOADED=()
+RELATED_SKIPPED=()
+if [ -n "$SPEC_TEXT" ]; then
+  RELATED_SECTION=$(echo "$SPEC_TEXT" | awk '
+    /^## Related code/ { in_section=1; next }
+    /^## /             { in_section=0 }
+    in_section==1      { print }
+  ')
+
+  RELATED_FILES=()
+  while IFS= read -r line; do
+    stripped="${line#-}"
+    stripped="${stripped# }"
+    stripped="${stripped# }"
+    stripped="${stripped#\`}"
+    stripped="${stripped%\`}"
+    stripped="${stripped%% *}"
+    if [ -z "$stripped" ] || [[ "$stripped" == "<"* ]]; then continue; fi
+    RELATED_FILES+=("$stripped")
+  done <<< "$RELATED_SECTION"
+
+  TOTAL_BUDGET=40000
+  PER_FILE_BUDGET=8000
+  bytes_loaded=0
+
+  for relpath in "${RELATED_FILES[@]}"; do
+    fullpath="$REPO_ROOT/$relpath"
+    if [ ! -f "$fullpath" ]; then
+      RELATED_SKIPPED+=("$relpath (not found)"); continue
+    fi
+    if [ "$bytes_loaded" -ge "$TOTAL_BUDGET" ]; then
+      RELATED_SKIPPED+=("$relpath (total budget exhausted)"); continue
+    fi
+    content="$(cat "$fullpath" 2>/dev/null || true)"
+    if [ -z "$content" ]; then
+      RELATED_SKIPPED+=("$relpath (empty or unreadable)"); continue
+    fi
+    orig_len=${#content}
+    if [ ${#content} -gt "$PER_FILE_BUDGET" ]; then
+      content="${content:0:$PER_FILE_BUDGET}
+
+[... truncated; full file is $orig_len chars]"
+    fi
+    RELATED_CODE_TEXT="${RELATED_CODE_TEXT}#### \`$relpath\`
+
+\`\`\`
+${content}
+\`\`\`
+
+"
+    bytes_loaded=$((bytes_loaded + ${#content}))
+    RELATED_LOADED+=("$relpath")
+  done
+fi
+
+# Commits / plan / project CLAUDE.md
+COMMITS_TEXT=""
+if [ -n "$COMMIT_RANGE" ]; then
+  RAW_COMMITS=$(git log --no-merges --format='─── %h %s%n%b%n' "$COMMIT_RANGE" 2>/dev/null || true)
+  [ -n "$RAW_COMMITS" ] && COMMITS_TEXT=$(truncate_str "$RAW_COMMITS" 4000)
+fi
+
+PLAN_TEXT=""
+PLAN_PATH=""
+for plan_dir in "$REPO_ROOT/.claude/plans" "$REPO_ROOT/.superpowers/plans" "$REPO_ROOT/plans"; do
+  if [ -d "$plan_dir" ]; then
+    LATEST_PLAN=$(ls -t "$plan_dir"/*.md 2>/dev/null | head -1 || true)
+    if [ -n "$LATEST_PLAN" ] && [ -f "$LATEST_PLAN" ]; then
+      PLAN_PATH="${LATEST_PLAN#$REPO_ROOT/}"
+      PLAN_TEXT=$(truncate_str "$(cat "$LATEST_PLAN")" 6000)
+      break
+    fi
+  fi
+done
+
+PROJECT_CLAUDE_TEXT=""
+if [ -z "$SPEC_TEXT" ] && [ -f "$REPO_ROOT/CLAUDE.md" ]; then
+  PROJECT_CLAUDE_TEXT=$(truncate_str "$(head -200 "$REPO_ROOT/CLAUDE.md")" 4000)
+fi
+
+CTX_PARTS=()
+[ -n "$SPEC_TEXT" ]                && CTX_PARTS+=("spec:$SPEC_PATH")
+[ ${#RELATED_LOADED[@]} -gt 0 ]    && CTX_PARTS+=("related:${#RELATED_LOADED[@]}files")
+[ -n "$EXTRA_CONTEXT" ]            && CTX_PARTS+=("user")
+[ -n "$COMMITS_TEXT" ]             && CTX_PARTS+=("commits")
+[ -n "$PLAN_TEXT" ]                && CTX_PARTS+=("plan:$PLAN_PATH")
+[ -n "$PROJECT_CLAUDE_TEXT" ]      && CTX_PARTS+=("CLAUDE.md")
+CTX_SUMMARY=$(IFS=,; echo "${CTX_PARTS[*]:-none}")
+
+DIFF_LINES=$(echo "$DIFF" | wc -l)
+echo "[codex-review] gpt-5.5 (xhigh) — $DIFF_LINES diff lines, iter #$ITERATION, scope: $SCOPE, context: $CTX_SUMMARY" >&2
+
+render_context() {
+  local has_spec=0
+  if [ -n "$SPEC_TEXT" ]; then
+    has_spec=1
+    echo "### Review spec ($SPEC_SCOPE) — AUTHORITATIVE"
+    echo ""
+    echo "**This is the contract for this review.** Written BEFORE implementation. Treat it as authoritative."
+    echo ""
+    echo "Source file: \`$SPEC_PATH\`"
+    echo ""
+    echo "---"
+    echo ""
+    echo "$SPEC_TEXT"
+    echo ""
+    echo "---"
+    echo ""
+  fi
+
+  if [ -n "$RELATED_CODE_TEXT" ]; then
+    echo "### Related code (context only — NOT under review)"
+    echo ""
+    echo "Files loaded: ${RELATED_LOADED[*]}"
+    if [ ${#RELATED_SKIPPED[@]} -gt 0 ]; then
+      echo ""
+      echo "Files skipped: ${RELATED_SKIPPED[*]}"
+    fi
+    echo ""
+    echo "$RELATED_CODE_TEXT"
+    echo "---"
+    echo ""
+  fi
+
+  if [ -n "$EXTRA_CONTEXT" ]; then
+    if [ $has_spec -eq 1 ]; then
+      echo "### Additional user-provided context (supplements the spec above)"
+    else
+      echo "### User-provided context"
+    fi
+    echo ""
+    echo "$EXTRA_CONTEXT"
+    echo ""
+  fi
+
+  if [ $has_spec -eq 0 ]; then
+    [ -n "$COMMITS_TEXT" ] && { echo "### Commits on this branch"; echo ""; echo "$COMMITS_TEXT"; echo ""; }
+    [ -n "$PLAN_TEXT" ]     && { echo "### Implementation plan ($PLAN_PATH)"; echo ""; echo "$PLAN_TEXT"; echo ""; }
+    [ -n "$PROJECT_CLAUDE_TEXT" ] && { echo "### Project CLAUDE.md (top section)"; echo ""; echo "$PROJECT_CLAUDE_TEXT"; echo ""; }
+  else
+    [ -n "$COMMITS_TEXT" ] && { echo "### Commits on this branch (for cross-reference)"; echo ""; echo "$COMMITS_TEXT" | head -40; echo ""; }
+  fi
+
+  if [ $has_spec -eq 0 ] && [ -z "$EXTRA_CONTEXT" ] && [ -z "$COMMITS_TEXT" ] && [ -z "$PLAN_TEXT" ] && [ -z "$PROJECT_CLAUDE_TEXT" ]; then
+    echo "### Context"
+    echo ""
+    echo "(no review spec, plan files, or commit context available; review purely on the diff's own merits.)"
+    echo ""
+  fi
+}
+
+CONTEXT_BLOCK=$(render_context)
+
+if [ -n "$SPEC_TEXT" ]; then
+  INTRO_TEXT="A review spec exists for this branch. **The spec is the contract.** Verify the diff against Requirements, respect Deliberate design choices and Non-goals, attend to Focus areas, and read Related code as authoritative extended context. Bugs outside the spec's scope are still worth flagging if real — but spec violations take priority."
+else
+  INTRO_TEXT="No formal review spec exists for this branch. Use the context below to understand intent. Distinguish deliberate design choices from accidental bugs. Don't flag what the plan explicitly defers."
+fi
+
+FULL_INPUT=$(
+  cat "$PROMPT_FILE"
+  echo ""
+  echo "---"
+  echo ""
+  echo "## Context for this review"
+  echo ""
+  echo "$INTRO_TEXT"
+  echo ""
+  echo "$CONTEXT_BLOCK"
+  echo "---"
+  echo ""
+  echo "**Review iteration:** #$ITERATION"
+  echo "**Scope:** $SCOPE"
+  echo ""
+  echo "**Diff to review:**"
+  echo ""
+  echo '```diff'
+  echo "$DIFF"
+  echo '```'
+)
+
+if ! REVIEW_OUTPUT=$(echo "$FULL_INPUT" | codex exec \
+      --skip-git-repo-check \
+      --sandbox read-only \
+      --ephemeral \
+      -m gpt-5.5 \
+      -c model_reasoning_effort=xhigh \
+      - 2>/dev/null); then
+  cat <<EOF
+STATUS: ERROR
+SUMMARY: codex exec failed.
+EOF
+  exit 1
+fi
+
+echo "$REVIEW_OUTPUT"

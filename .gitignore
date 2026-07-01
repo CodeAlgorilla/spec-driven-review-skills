@@ -1,0 +1,33 @@
+# Backups created by installers
+*.bak
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local test sandboxes
+/tmp/
+test-output/
+.test/
+
+# Anything node_modules in case it sneaks in
+node_modules/
+
+# Python (in case anyone scripts in python alongside)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local secrets (don't commit any API keys etc.)
+.env
+.env.local
+secrets/
