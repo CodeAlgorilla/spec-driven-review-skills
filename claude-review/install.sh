@@ -53,10 +53,14 @@ do_install() {
   step "Updating CLAUDE.md policy"
   mkdir -p "$USER_CLAUDE_DIR"; touch "$USER_CLAUDE_MD"
   if grep -qF "$POLICY_START_MARKER" "$USER_CLAUDE_MD"; then
-    cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
-    sed -i.tmp "/${POLICY_START_MARKER//\//\\/}/,/${POLICY_END_MARKER//\//\\/}/d" "$USER_CLAUDE_MD"
-    rm -f "${USER_CLAUDE_MD}.tmp"
-    ok "Old policy removed (backup at .bak)"
+    if grep -qF "$POLICY_END_MARKER" "$USER_CLAUDE_MD"; then
+      cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
+      sed -i.tmp "/${POLICY_START_MARKER//\//\\/}/,/${POLICY_END_MARKER//\//\\/}/d" "$USER_CLAUDE_MD"
+      rm -f "${USER_CLAUDE_MD}.tmp"
+      ok "Old policy removed (backup at .bak)"
+    else
+      warn "Policy start marker found but end marker missing; skipping removal to avoid deleting your CLAUDE.md. Remove the claude-review policy block manually, then re-run."
+    fi
   fi
   { echo ""; cat "$PKG_DIR/CLAUDE_md_policy.md"; } >> "$USER_CLAUDE_MD"
   ok "v2.2 policy appended"
@@ -146,10 +150,14 @@ do_uninstall() {
   echo "Uninstalling claude-review..."
   [ -d "$SKILL_TARGET" ] && { rm -rf "$SKILL_TARGET"; ok "Removed $SKILL_TARGET"; }
   if grep -qF "$POLICY_START_MARKER" "$USER_CLAUDE_MD" 2>/dev/null; then
-    cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
-    sed -i.tmp "/${POLICY_START_MARKER//\//\\/}/,/${POLICY_END_MARKER//\//\\/}/d" "$USER_CLAUDE_MD"
-    rm -f "${USER_CLAUDE_MD}.tmp"
-    ok "Policy block removed"
+    if grep -qF "$POLICY_END_MARKER" "$USER_CLAUDE_MD" 2>/dev/null; then
+      cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
+      sed -i.tmp "/${POLICY_START_MARKER//\//\\/}/,/${POLICY_END_MARKER//\//\\/}/d" "$USER_CLAUDE_MD"
+      rm -f "${USER_CLAUDE_MD}.tmp"
+      ok "Policy block removed"
+    else
+      warn "Policy start marker found but end marker missing; skipping removal to avoid deleting your CLAUDE.md. Remove the claude-review policy block manually."
+    fi
   fi
   echo "Uninstalled. codex-review NOT affected."
 }
