@@ -54,16 +54,30 @@ detect_default_branch() {
 }
 
 if [ -n "$BASE_REF" ]; then
-  DIFF=$(git diff "${BASE_REF}...HEAD" 2>/dev/null || git diff "${BASE_REF}")
-  SCOPE="changes vs ${BASE_REF}"
+  if DIFF=$(git diff "${BASE_REF}...HEAD" 2>/dev/null); then
+    SCOPE="changes vs ${BASE_REF}"
+  elif DIFF=$(git diff "${BASE_REF}" 2>/dev/null); then
+    SCOPE="changes vs ${BASE_REF} (two-dot diff; no merge base)"
+  else
+    echo "STATUS: ERROR"
+    echo "SUMMARY: Cannot diff against '${BASE_REF}' — ref does not resolve."
+    exit 1
+  fi
   COMMIT_RANGE="${BASE_REF}..HEAD"
 else
   DEFAULT_BRANCH=$(detect_default_branch)
   CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
   if [ -n "$CURRENT_BRANCH" ] && [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
     if git show-ref --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH"; then BASE="origin/$DEFAULT_BRANCH"; else BASE="$DEFAULT_BRANCH"; fi
-    DIFF=$(git diff "${BASE}...HEAD")
-    SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (three-dot diff)"
+    if DIFF=$(git diff "${BASE}...HEAD" 2>/dev/null); then
+      SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (three-dot diff)"
+    elif DIFF=$(git diff "${BASE}" 2>/dev/null); then
+      SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (two-dot diff; no merge base)"
+    else
+      echo "STATUS: ERROR"
+      echo "SUMMARY: Cannot diff '$CURRENT_BRANCH' against $BASE."
+      exit 1
+    fi
     COMMIT_RANGE="${BASE}..HEAD"
     UNCOMMITTED=$(git diff HEAD)
     if [ -n "$UNCOMMITTED" ]; then
@@ -74,6 +88,11 @@ ${UNCOMMITTED}"
       SCOPE="${SCOPE} + uncommitted changes"
     fi
   else
+    if ! git rev-parse --verify --quiet HEAD >/dev/null; then
+      echo "STATUS: ERROR"
+      echo "SUMMARY: Repository has no commits yet (unborn HEAD) — nothing to diff against."
+      exit 1
+    fi
     DIFF=$(git diff HEAD)
     SCOPE="uncommitted changes (staged + unstaged) vs HEAD"
     COMMIT_RANGE=""
@@ -92,10 +111,23 @@ truncate_str() {
   else echo "$s"; fi
 }
 
+# Print a backtick fence longer than the longest backtick run in $1 (min 3),
+# so embedded content can never close the wrapper fence early.
+backtick_fence() {
+  local run
+  run=$(printf '%s\n' "$1" | awk '{
+    s = $0; n = 0
+    while (match(s, /`+/)) { if (RLENGTH > n) n = RLENGTH; s = substr(s, RSTART + RLENGTH) }
+    if (n > max) max = n
+  } END { print max + 0 }')
+  if [ "$run" -lt 2 ]; then run=2; fi
+  printf '%*s' "$((run + 1))" '' | tr ' ' '`'
+}
+
 SPEC_TEXT=""; SPEC_PATH=""; SPEC_SCOPE=""
 for spec_candidate in "$REPO_ROOT/.claude/review-spec-claude.md" "$REPO_ROOT/.claude-review/spec.md"; do
   if [ -f "$spec_candidate" ]; then
-    SPEC_PATH="${spec_candidate#$REPO_ROOT/}"
+    SPEC_PATH="${spec_candidate#"$REPO_ROOT"/}"
     [[ "$spec_candidate" == *"/.claude/"* ]] && SPEC_SCOPE="branch-level" || SPEC_SCOPE="project-level"
     SPEC_TEXT=$(truncate_str "$(cat "$spec_candidate")" 12000)
     break
@@ -109,15 +141,19 @@ if [ -n "$SPEC_TEXT" ]; then
   while IFS= read -r line; do
     stripped="${line#-}"
     stripped="${stripped# }"; stripped="${stripped# }"
-    stripped="${stripped#\`}"; stripped="${stripped%% *}"
+    stripped="${stripped#\`}"; stripped="${stripped%% #*}"
+    stripped="${stripped%"${stripped##*[![:space:]]}"}"
     stripped="${stripped%\`}"
-    if [ -z "$stripped" ] || [[ "$stripped" == "<"* ]]; then continue; fi
+    if [ -z "$stripped" ] || [[ "$stripped" == "<"* ]] || [[ "$stripped" == "#"* ]]; then continue; fi
     RELATED_FILES+=("$stripped")
   done <<< "$RELATED_SECTION"
 
   TOTAL_BUDGET=40000; PER_FILE_BUDGET=8000; bytes_loaded=0
   # bash 3.2-safe: expands to nothing (not an "unbound variable" error) when the array is empty
   for relpath in ${RELATED_FILES[@]+"${RELATED_FILES[@]}"}; do
+    case "/$relpath/" in
+      */../*) RELATED_SKIPPED+=("$relpath (outside repo)"); continue ;;
+    esac
     fullpath="$REPO_ROOT/$relpath"
     if [ ! -f "$fullpath" ]; then RELATED_SKIPPED+=("$relpath (not found)"); continue; fi
     if [ "$bytes_loaded" -ge "$TOTAL_BUDGET" ]; then RELATED_SKIPPED+=("$relpath (total budget exhausted)"); continue; fi
@@ -129,11 +165,12 @@ if [ -n "$SPEC_TEXT" ]; then
 
 [... truncated; full file is $orig_len chars]"
     fi
+    fence=$(backtick_fence "$content")
     RELATED_CODE_TEXT="${RELATED_CODE_TEXT}#### \`$relpath\`
 
-\`\`\`
+${fence}
 ${content}
-\`\`\`
+${fence}
 
 "
     bytes_loaded=$((bytes_loaded + ${#content}))
@@ -152,7 +189,7 @@ for plan_dir in "$REPO_ROOT/.claude/plans" "$REPO_ROOT/.superpowers/plans" "$REP
   if [ -d "$plan_dir" ]; then
     LATEST_PLAN=$(ls -t "$plan_dir"/*.md 2>/dev/null | head -1 || true)
     if [ -n "$LATEST_PLAN" ] && [ -f "$LATEST_PLAN" ]; then
-      PLAN_PATH="${LATEST_PLAN#$REPO_ROOT/}"
+      PLAN_PATH="${LATEST_PLAN#"$REPO_ROOT"/}"
       PLAN_TEXT=$(truncate_str "$(cat "$LATEST_PLAN")" 6000)
       break
     fi
@@ -208,6 +245,15 @@ render_context() {
   else
     [ -n "$COMMITS_TEXT" ] && { echo "### Commits on this branch (for cross-reference)"; echo ""; echo "$COMMITS_TEXT" | head -40; echo ""; }
   fi
+
+  # Trailing if also guarantees render_context returns 0 even when the
+  # bare [ -n ] && { } lines above evaluated false under set -e.
+  if [ $has_spec -eq 0 ] && [ -z "$EXTRA_CONTEXT" ] && [ -z "$COMMITS_TEXT" ] && [ -z "$PLAN_TEXT" ] && [ -z "$PROJECT_CLAUDE_TEXT" ]; then
+    echo "### Context"
+    echo ""
+    echo "(no review spec, plan files, or commit context available; review purely on the diff's own merits.)"
+    echo ""
+  fi
 }
 
 CONTEXT_BLOCK=$(render_context)
@@ -217,6 +263,8 @@ if [ -n "$SPEC_TEXT" ]; then
 else
   INTRO_TEXT="No formal review spec. Use the context below to understand intent. Distinguish deliberate design choices from accidental bugs."
 fi
+
+DIFF_FENCE=$(backtick_fence "$DIFF")
 
 FULL_INPUT=$(
   cat "$PROMPT_FILE"
@@ -228,22 +276,30 @@ FULL_INPUT=$(
   echo "**Review iteration:** #$ITERATION"
   echo "**Scope:** $SCOPE"
   echo ""; echo "**Diff to review:**"; echo ""
-  echo '```diff'; echo "$DIFF"; echo '```'
+  echo "${DIFF_FENCE}diff"; echo "$DIFF"; echo "$DIFF_FENCE"
 )
 
-if ! REVIEW_OUTPUT=$(claude -p "$FULL_INPUT" \
+# The bundle is piped via stdin: passing it as a single argv hits the kernel's
+# 128 KiB per-argument limit (MAX_ARG_STRLEN) and fails exactly on large diffs.
+CLAUDE_ERR=$(mktemp)
+if ! REVIEW_OUTPUT=$(echo "$FULL_INPUT" | claude -p \
       --bare \
       --model claude-opus-4-8 \
       --effort max \
       --allowedTools "Read,Grep,Glob" \
       --dangerously-skip-permissions \
       --output-format text \
-      2>/dev/null); then
-  cat <<EOF
-STATUS: ERROR
-SUMMARY: claude headless call failed.
-EOF
+      2>"$CLAUDE_ERR"); then
+  echo "STATUS: ERROR"
+  echo "SUMMARY: claude headless call failed."
+  if [ -s "$CLAUDE_ERR" ]; then
+    echo ""
+    echo "Reviewer stderr (tail):"
+    tail -20 "$CLAUDE_ERR"
+  fi
+  rm -f "$CLAUDE_ERR"
   exit 1
 fi
+rm -f "$CLAUDE_ERR"
 
 echo "$REVIEW_OUTPUT"

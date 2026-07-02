@@ -19,6 +19,29 @@ warn() { echo "  $(c_yellow '⚠') $1"; }
 fail() { echo "  $(c_red '✗') $1"; }
 step() { echo ""; echo "$(c_dim '→') $1"; }
 
+# Safely remove the policy block from USER_CLAUDE_MD.
+# Only deletes when exactly one START marker pairs with exactly one END after it,
+# and writes through the file (never rename) so a symlinked CLAUDE.md keeps its link.
+# Returns 1 (touching nothing) when the markers are malformed.
+remove_policy_block() {
+  local starts ends start_line end_line tmp
+  [ -f "$USER_CLAUDE_MD" ] || return 0
+  starts=$(grep -cF "$POLICY_START_MARKER" "$USER_CLAUDE_MD" || true)
+  ends=$(grep -cF "$POLICY_END_MARKER" "$USER_CLAUDE_MD" || true)
+  if [ "$starts" -eq 0 ] && [ "$ends" -eq 0 ]; then return 0; fi
+  if [ "$starts" -ne 1 ] || [ "$ends" -ne 1 ]; then return 1; fi
+  start_line=$(grep -nF "$POLICY_START_MARKER" "$USER_CLAUDE_MD" | head -1 | cut -d: -f1)
+  end_line=$(grep -nF "$POLICY_END_MARKER" "$USER_CLAUDE_MD" | head -1 | cut -d: -f1)
+  if [ "$end_line" -lt "$start_line" ]; then return 1; fi
+  cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
+  tmp=$(mktemp)
+  awk -v s="$start_line" -v e="$end_line" 'NR < s || NR > e' "$USER_CLAUDE_MD" > "$tmp"
+  cat "$tmp" > "$USER_CLAUDE_MD"
+  rm -f "$tmp"
+  ok "Existing policy block removed (backup at .bak)"
+  return 0
+}
+
 do_install() {
   for f in SKILL.md scripts/run_review.sh scripts/init-spec.sh \
            references/reviewer_prompt.md templates/review-spec.template.md \
@@ -31,6 +54,7 @@ do_install() {
   echo "══════════════════════════════════════════════════════════"
 
   step "Installing skill files → $SKILL_TARGET"
+  rm -rf "$SKILL_TARGET/scripts" "$SKILL_TARGET/references" "$SKILL_TARGET/templates"
   mkdir -p "$SKILL_TARGET/scripts" "$SKILL_TARGET/references" "$SKILL_TARGET/templates"
   [ -f "$SKILL_TARGET/SKILL.md" ] && { cp "$SKILL_TARGET/SKILL.md" "$SKILL_TARGET/SKILL.md.bak"; warn "Existing SKILL.md backed up"; }
   cp "$PKG_DIR/SKILL.md" "$SKILL_TARGET/"
@@ -44,18 +68,13 @@ do_install() {
   step "Updating CLAUDE.md policy"
   mkdir -p "$USER_CLAUDE_DIR"
   touch "$USER_CLAUDE_MD"
-  if grep -qF "$POLICY_START_MARKER" "$USER_CLAUDE_MD"; then
-    if grep -qF "$POLICY_END_MARKER" "$USER_CLAUDE_MD"; then
-      cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
-      sed -i.tmp "/${POLICY_START_MARKER//\//\\/}/,/${POLICY_END_MARKER//\//\\/}/d" "$USER_CLAUDE_MD"
-      rm -f "${USER_CLAUDE_MD}.tmp"
-      ok "Old policy removed (backup at .bak)"
-    else
-      warn "Policy start marker found but end marker missing; skipping removal to avoid deleting your CLAUDE.md. Remove the codex-review policy block manually, then re-run."
-    fi
+  if remove_policy_block; then
+    { echo ""; cat "$PKG_DIR/CLAUDE_md_policy.md"; } >> "$USER_CLAUDE_MD"
+    ok "v1.5 policy appended"
+  else
+    warn "codex-review policy markers in $USER_CLAUDE_MD are malformed (orphaned or duplicated)."
+    warn "NOT touching the policy. Clean up the markers manually, then re-run install."
   fi
-  { echo ""; cat "$PKG_DIR/CLAUDE_md_policy.md"; } >> "$USER_CLAUDE_MD"
-  ok "v1.5 policy appended"
 
   step "codex CLI"
   if command -v codex >/dev/null 2>&1; then
@@ -141,15 +160,9 @@ do_verify() {
 do_uninstall() {
   echo "Uninstalling codex-review..."
   [ -d "$SKILL_TARGET" ] && { rm -rf "$SKILL_TARGET"; ok "Removed $SKILL_TARGET"; }
-  if grep -qF "$POLICY_START_MARKER" "$USER_CLAUDE_MD" 2>/dev/null; then
-    if grep -qF "$POLICY_END_MARKER" "$USER_CLAUDE_MD" 2>/dev/null; then
-      cp "$USER_CLAUDE_MD" "${USER_CLAUDE_MD}.bak"
-      sed -i.tmp "/${POLICY_START_MARKER//\//\\/}/,/${POLICY_END_MARKER//\//\\/}/d" "$USER_CLAUDE_MD"
-      rm -f "${USER_CLAUDE_MD}.tmp"
-      ok "Policy block removed (backup at .bak)"
-    else
-      warn "Policy start marker found but end marker missing; skipping removal to avoid deleting your CLAUDE.md. Remove the codex-review policy block manually."
-    fi
+  if ! remove_policy_block; then
+    warn "codex-review policy markers in $USER_CLAUDE_MD are malformed (orphaned or duplicated)."
+    warn "NOT touching the policy. Remove the block manually."
   fi
   echo "Uninstalled. claude-review NOT affected."
 }

@@ -54,8 +54,15 @@ detect_default_branch() {
 }
 
 if [ -n "$BASE_REF" ]; then
-  DIFF=$(git diff "${BASE_REF}...HEAD" 2>/dev/null || git diff "${BASE_REF}")
-  SCOPE="changes vs ${BASE_REF}"
+  if DIFF=$(git diff "${BASE_REF}...HEAD" 2>/dev/null); then
+    SCOPE="changes vs ${BASE_REF}"
+  elif DIFF=$(git diff "${BASE_REF}" 2>/dev/null); then
+    SCOPE="changes vs ${BASE_REF} (two-dot diff; no merge base)"
+  else
+    echo "STATUS: ERROR"
+    echo "SUMMARY: Cannot diff against '${BASE_REF}' — ref does not resolve."
+    exit 1
+  fi
   COMMIT_RANGE="${BASE_REF}..HEAD"
 else
   DEFAULT_BRANCH=$(detect_default_branch)
@@ -66,8 +73,15 @@ else
     else
       BASE="$DEFAULT_BRANCH"
     fi
-    DIFF=$(git diff "${BASE}...HEAD")
-    SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (three-dot diff)"
+    if DIFF=$(git diff "${BASE}...HEAD" 2>/dev/null); then
+      SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (three-dot diff)"
+    elif DIFF=$(git diff "${BASE}" 2>/dev/null); then
+      SCOPE="feature branch '$CURRENT_BRANCH' vs $BASE (two-dot diff; no merge base)"
+    else
+      echo "STATUS: ERROR"
+      echo "SUMMARY: Cannot diff '$CURRENT_BRANCH' against $BASE."
+      exit 1
+    fi
     COMMIT_RANGE="${BASE}..HEAD"
     UNCOMMITTED=$(git diff HEAD)
     if [ -n "$UNCOMMITTED" ]; then
@@ -78,6 +92,11 @@ ${UNCOMMITTED}"
       SCOPE="${SCOPE} + uncommitted changes"
     fi
   else
+    if ! git rev-parse --verify --quiet HEAD >/dev/null; then
+      echo "STATUS: ERROR"
+      echo "SUMMARY: Repository has no commits yet (unborn HEAD) — nothing to diff against."
+      exit 1
+    fi
     DIFF=$(git diff HEAD)
     SCOPE="uncommitted changes (staged + unstaged) vs HEAD"
     COMMIT_RANGE=""
@@ -101,6 +120,19 @@ truncate_str() {
   fi
 }
 
+# Print a backtick fence longer than the longest backtick run in $1 (min 3),
+# so embedded content can never close the wrapper fence early.
+backtick_fence() {
+  local run
+  run=$(printf '%s\n' "$1" | awk '{
+    s = $0; n = 0
+    while (match(s, /`+/)) { if (RLENGTH > n) n = RLENGTH; s = substr(s, RSTART + RLENGTH) }
+    if (n > max) max = n
+  } END { print max + 0 }')
+  if [ "$run" -lt 2 ]; then run=2; fi
+  printf '%*s' "$((run + 1))" '' | tr ' ' '`'
+}
+
 # Spec
 SPEC_TEXT=""
 SPEC_PATH=""
@@ -109,7 +141,7 @@ for spec_candidate in \
   "$REPO_ROOT/.claude/review-spec.md" \
   "$REPO_ROOT/.codex-review/spec.md"; do
   if [ -f "$spec_candidate" ]; then
-    SPEC_PATH="${spec_candidate#$REPO_ROOT/}"
+    SPEC_PATH="${spec_candidate#"$REPO_ROOT"/}"
     [[ "$spec_candidate" == *"/.claude/"* ]] && SPEC_SCOPE="branch-level" || SPEC_SCOPE="project-level"
     SPEC_TEXT=$(truncate_str "$(cat "$spec_candidate")" 12000)
     break
@@ -133,9 +165,10 @@ if [ -n "$SPEC_TEXT" ]; then
     stripped="${stripped# }"
     stripped="${stripped# }"
     stripped="${stripped#\`}"
-    stripped="${stripped%% *}"
+    stripped="${stripped%% #*}"
+    stripped="${stripped%"${stripped##*[![:space:]]}"}"
     stripped="${stripped%\`}"
-    if [ -z "$stripped" ] || [[ "$stripped" == "<"* ]]; then continue; fi
+    if [ -z "$stripped" ] || [[ "$stripped" == "<"* ]] || [[ "$stripped" == "#"* ]]; then continue; fi
     RELATED_FILES+=("$stripped")
   done <<< "$RELATED_SECTION"
 
@@ -145,6 +178,9 @@ if [ -n "$SPEC_TEXT" ]; then
 
   # bash 3.2-safe: expands to nothing (not an "unbound variable" error) when the array is empty
   for relpath in ${RELATED_FILES[@]+"${RELATED_FILES[@]}"}; do
+    case "/$relpath/" in
+      */../*) RELATED_SKIPPED+=("$relpath (outside repo)"); continue ;;
+    esac
     fullpath="$REPO_ROOT/$relpath"
     if [ ! -f "$fullpath" ]; then
       RELATED_SKIPPED+=("$relpath (not found)"); continue
@@ -162,11 +198,12 @@ if [ -n "$SPEC_TEXT" ]; then
 
 [... truncated; full file is $orig_len chars]"
     fi
+    fence=$(backtick_fence "$content")
     RELATED_CODE_TEXT="${RELATED_CODE_TEXT}#### \`$relpath\`
 
-\`\`\`
+${fence}
 ${content}
-\`\`\`
+${fence}
 
 "
     bytes_loaded=$((bytes_loaded + ${#content}))
@@ -187,7 +224,7 @@ for plan_dir in "$REPO_ROOT/.claude/plans" "$REPO_ROOT/.superpowers/plans" "$REP
   if [ -d "$plan_dir" ]; then
     LATEST_PLAN=$(ls -t "$plan_dir"/*.md 2>/dev/null | head -1 || true)
     if [ -n "$LATEST_PLAN" ] && [ -f "$LATEST_PLAN" ]; then
-      PLAN_PATH="${LATEST_PLAN#$REPO_ROOT/}"
+      PLAN_PATH="${LATEST_PLAN#"$REPO_ROOT"/}"
       PLAN_TEXT=$(truncate_str "$(cat "$LATEST_PLAN")" 6000)
       break
     fi
@@ -278,6 +315,8 @@ else
   INTRO_TEXT="No formal review spec exists for this branch. Use the context below to understand intent. Distinguish deliberate design choices from accidental bugs. Don't flag what the plan explicitly defers."
 fi
 
+DIFF_FENCE=$(backtick_fence "$DIFF")
+
 FULL_INPUT=$(
   cat "$PROMPT_FILE"
   echo ""
@@ -295,23 +334,29 @@ FULL_INPUT=$(
   echo ""
   echo "**Diff to review:**"
   echo ""
-  echo '```diff'
+  echo "${DIFF_FENCE}diff"
   echo "$DIFF"
-  echo '```'
+  echo "$DIFF_FENCE"
 )
 
+CODEX_ERR=$(mktemp)
 if ! REVIEW_OUTPUT=$(echo "$FULL_INPUT" | codex exec \
       --skip-git-repo-check \
       --sandbox read-only \
       --ephemeral \
       -m gpt-5.5 \
       -c model_reasoning_effort=xhigh \
-      - 2>/dev/null); then
-  cat <<EOF
-STATUS: ERROR
-SUMMARY: codex exec failed.
-EOF
+      - 2>"$CODEX_ERR"); then
+  echo "STATUS: ERROR"
+  echo "SUMMARY: codex exec failed."
+  if [ -s "$CODEX_ERR" ]; then
+    echo ""
+    echo "Reviewer stderr (tail):"
+    tail -20 "$CODEX_ERR"
+  fi
+  rm -f "$CODEX_ERR"
   exit 1
 fi
+rm -f "$CODEX_ERR"
 
 echo "$REVIEW_OUTPUT"
