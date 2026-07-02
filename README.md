@@ -100,7 +100,7 @@ These skills encode all three: spec as authoritative contract, auto-explored Rel
 ## Quick install
 
 ```bash
-git clone https://github.com/<your-username>/spec-driven-review-skills.git
+git clone https://github.com/CodeAlgorilla/spec-driven-review-skills.git
 cd spec-driven-review-skills
 bash install.sh
 ```
