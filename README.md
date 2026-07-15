@@ -10,8 +10,8 @@
 
 A pair of Claude Code skills that turn "finished feature → reviewed feature → committed feature" into an explicit, spec-driven loop. Two engines are supported and coexist:
 
-- **codex-review** routes review through OpenAI Codex (gpt-5.5, xhigh reasoning)
-- **claude-review** routes review through a fresh `claude -p` invocation (Opus 4.8, max effort)
+- **codex-review** routes review through OpenAI Codex (gpt-5.6-sol, max reasoning)
+- **claude-review** routes review through a fresh `claude -p` invocation (Fable 5, max effort)
 
 Each skill writes its own spec, has its own trigger phrases, and ends with a hard stop so the merge decision stays human.
 
@@ -39,7 +39,7 @@ Each skill writes its own spec, has its own trigger phrases, and ends with a har
 
 Three observations drive the design:
 
-1. **Self-review has blind spots.** Same-model review misses bugs the same model just made. Cross-engine review (`gpt-5.5` reviewing Claude's code, or fresh `claude -p` reviewing a main session's code) catches a meaningfully different class of issues.
+1. **Self-review has blind spots.** Same-model review misses bugs the same model just made. Cross-engine review (`gpt-5.6-sol` reviewing Claude's code, or fresh `claude -p` reviewing a main session's code) catches a meaningfully different class of issues.
 
 2. **Reviewers without context produce false positives.** "You changed `solve_ik()`'s return shape" is only a bug if the caller cares. Without seeing the caller, the reviewer either misses the bug or flags every change as suspicious.
 
@@ -76,8 +76,8 @@ These skills encode all three: spec as authoritative contract, auto-explored Rel
 │      │   codex-review   │        │  claude-review   │           │
 │      │                  │        │                  │           │
 │      │   codex exec     │        │   claude -p      │           │
-│      │   gpt-5.5        │        │   Opus 4.8       │           │
-│      │   xhigh          │        │   max effort     │           │
+│      │   gpt-5.6-sol    │        │   Fable 5        │           │
+│      │   max effort     │        │   max effort     │           │
 │      │   --sandbox ro   │        │   --bare         │           │
 │      │                  │        │   --allowedTools │           │
 │      │                  │        │     Read/Grep/   │           │
@@ -110,8 +110,8 @@ You'll be asked which skill(s) to install:
 ```
 Two skills are available:
 
-  1 codex-review   — uses OpenAI Codex (gpt-5.5, xhigh)
-  2 claude-review  — uses Claude Code (Opus 4.8, max effort)
+  1 codex-review   — uses OpenAI Codex (gpt-5.6-sol, max)
+  2 claude-review  — uses Claude Code (Fable 5, max effort)
   3 Both           — recommended (they coexist + complement)
   0 Exit
 ```
@@ -180,7 +180,7 @@ You:     "run codex review"  ← EXPLICIT trigger
 Claude:  bash run_review.sh 1
          loads spec + Related code + diff + commits
          ↓
-         codex exec gpt-5.5 xhigh — full bundle review
+         codex exec gpt-5.6-sol max — full bundle review
          ↓
          STATUS: ISSUES_FOUND  →  Claude fixes CRITICAL+HIGH
          re-run: STATUS: CLEAN
@@ -204,8 +204,8 @@ Claude:  git commit ...
 |                          | codex-review                                       | claude-review                                  |
 |--------------------------|----------------------------------------------------|------------------------------------------------|
 | **Engine**               | `codex exec`                                       | `claude -p`                                    |
-| **Model**                | `gpt-5.5`                                          | `claude-opus-4-8`                              |
-| **Reasoning**            | `model_reasoning_effort=xhigh`                     | `--effort max`                                 |
+| **Model**                | `gpt-5.6-sol`                                      | `claude-fable-5`                               |
+| **Reasoning**            | `model_reasoning_effort=max`                       | `--effort max`                                 |
 | **Context isolation**    | `--sandbox read-only --ephemeral`                  | `--bare --allowedTools "Read,Grep,Glob"`       |
 | **Exploration tools**    | shell: `cat`, `grep`, `find`                       | Read, Grep, Glob                               |
 | **Bias mitigation**      | Different model family                             | Different invocation (no history, bare)        |

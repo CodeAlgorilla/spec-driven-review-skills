@@ -2,8 +2,8 @@
 # install.sh — Top-level meta-installer for spec-driven-review-skills.
 #
 # Two skills are available:
-#   • codex-review   (uses OpenAI Codex CLI — gpt-5.5, xhigh)
-#   • claude-review  (uses Claude Code CLI — Opus 4.8, max effort)
+#   • codex-review   (uses OpenAI Codex CLI — gpt-5.6-sol, max)
+#   • claude-review  (uses Claude Code CLI — Fable 5, max effort)
 #
 # Usage:
 #   bash install.sh              Interactive: picks which to install
@@ -169,8 +169,8 @@ do_interactive() {
   echo ""
   echo "Two skills are available:"
   echo ""
-  echo "  $(c_bold '1') $(c_blue 'codex-review')   $(c_dim '— uses OpenAI Codex (gpt-5.5, xhigh)')"
-  echo "  $(c_bold '2') $(c_blue 'claude-review')  $(c_dim '— uses Claude Code (Opus 4.8, max effort)')"
+  echo "  $(c_bold '1') $(c_blue 'codex-review')   $(c_dim '— uses OpenAI Codex (gpt-5.6-sol, max)')"
+  echo "  $(c_bold '2') $(c_blue 'claude-review')  $(c_dim '— uses Claude Code (Fable 5, max effort)')"
   echo "  $(c_bold '3') $(c_green 'Both')           $(c_dim '— recommended (they coexist + complement)')"
   echo "  $(c_bold '0') $(c_dim 'Exit')"
   echo ""

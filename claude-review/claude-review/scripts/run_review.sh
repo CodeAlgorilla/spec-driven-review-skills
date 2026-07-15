@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_review.sh — Send a git diff + context to Claude Code (opus-4-8, max effort)
+# run_review.sh — Send a git diff + context to Claude Code (fable-5, max effort)
 # headless for review.
 #
 # v2.1.0+: supports a "Related code" section in the spec. Files listed there
@@ -211,7 +211,7 @@ CTX_PARTS=()
 CTX_SUMMARY=$(IFS=,; echo "${CTX_PARTS[*]:-none}")
 
 DIFF_LINES=$(echo "$DIFF" | wc -l)
-echo "[claude-review] opus-4-8 (max effort) — $DIFF_LINES diff lines, iter #$ITERATION, scope: $SCOPE, context: $CTX_SUMMARY" >&2
+echo "[claude-review] fable-5 (max effort) — $DIFF_LINES diff lines, iter #$ITERATION, scope: $SCOPE, context: $CTX_SUMMARY" >&2
 
 render_context() {
   local has_spec=0
@@ -284,7 +284,7 @@ FULL_INPUT=$(
 CLAUDE_ERR=$(mktemp)
 if ! REVIEW_OUTPUT=$(echo "$FULL_INPUT" | claude -p \
       --bare \
-      --model claude-opus-4-8 \
+      --model claude-fable-5 \
       --effort max \
       --allowedTools "Read,Grep,Glob" \
       --dangerously-skip-permissions \

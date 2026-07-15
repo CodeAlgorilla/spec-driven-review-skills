@@ -1,12 +1,12 @@
 ---
 name: claude-review
-description: Iterative code review using Claude Code in headless mode (claude -p, opus-4-8, max effort) as a FRESH external reviewer with no conversation history. Phase A scaffolds the spec and AUTO-EXPLORES the codebase for Related code (callers, types, sibling modules) before showing to user. Phase B runs review loop with spec + Related code + Read/Grep/Glob exploration tools. Use only on explicit triggers — "claude review", "claude review this", "fresh review", "fresh eyes", "fresh eyes review", "another review with claude", "review with a fresh claude". Spec setup triggers: "set up claude review spec", "init claude review spec", "scaffold claude review spec". Does NOT auto-trigger on generic completion phrases — those belong to codex-review. Coexists with codex-review (separate spec files). CRITICAL: after review returns CLEAN, STOP — do NOT auto-commit, auto-merge, or chain to `finishing-a-development-branch`.
+description: Iterative code review using Claude Code in headless mode (claude -p, fable-5, max effort) as a FRESH external reviewer with no conversation history. Phase A scaffolds the spec and AUTO-EXPLORES the codebase for Related code (callers, types, sibling modules) before showing to user. Phase B runs review loop with spec + Related code + Read/Grep/Glob exploration tools. Use only on explicit triggers — "claude review", "claude review this", "fresh review", "fresh eyes", "fresh eyes review", "another review with claude", "review with a fresh claude". Spec setup triggers: "set up claude review spec", "init claude review spec", "scaffold claude review spec". Does NOT auto-trigger on generic completion phrases — those belong to codex-review. Coexists with codex-review (separate spec files). CRITICAL: after review returns CLEAN, STOP — do NOT auto-commit, auto-merge, or chain to `finishing-a-development-branch`.
 
 ---
 
 # Claude Cross-Invocation Code Review Loop (with auto-explored Related code)
 
-A fresh `claude -p` invocation (Opus 4.8, max effort, bare mode) reviews the diff with no conversation history and no project context bleed. Main session is the implementer.
+A fresh `claude -p` invocation (Fable 5, max effort, bare mode) reviews the diff with no conversation history and no project context bleed. Main session is the implementer.
 
 Direct mirror of codex-review's architecture, different engine.
 
@@ -105,11 +105,11 @@ bash "$HOME/.claude/skills/claude-review/scripts/init-spec.sh" --project
 bash "$HOME/.claude/skills/claude-review/scripts/run_review.sh" 1
 ```
 
-The script reads spec + Related code, calls `claude -p --bare --model claude-opus-4-8 --effort max --allowedTools "Read,Grep,Glob"`.
+The script reads spec + Related code, calls `claude -p --bare --model claude-fable-5 --effort max --allowedTools "Read,Grep,Glob"`.
 
 Stderr summary:
 ```
-[claude-review] opus-4-8 (max effort) — 102 diff lines, iter #1,
+[claude-review] fable-5 (max effort) — 102 diff lines, iter #1,
   scope: feature branch '...' vs main,
   context: spec:.claude/review-spec-claude.md,related:3files,commits
 ```
@@ -155,8 +155,8 @@ Do NOT auto-commit, auto-merge, chain to `finishing-a-development-branch`, open 
 
 ## Coexistence with codex-review
 
-- **codex-review**: `.claude/review-spec.md`, `codex exec` (gpt-5.5)
-- **claude-review**: `.claude/review-spec-claude.md`, `claude -p` (Opus 4.8)
+- **codex-review**: `.claude/review-spec.md`, `codex exec` (gpt-5.6-sol)
+- **claude-review**: `.claude/review-spec-claude.md`, `claude -p` (Fable 5)
 
 Both can run sequentially:
 ```

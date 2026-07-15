@@ -140,10 +140,10 @@ do_verify() {
   step "Read-only tools restriction"
   grep -q -- '--allowedTools "Read,Grep,Glob"' "$SKILL_TARGET/scripts/run_review.sh" 2>/dev/null && ok "Read-only tools enforced"
 
-  step "Opus 4.8 max effort"
-  if grep -q -- "--model claude-opus-4-8" "$SKILL_TARGET/scripts/run_review.sh" 2>/dev/null \
+  step "Fable 5 max effort"
+  if grep -q -- "--model claude-fable-5" "$SKILL_TARGET/scripts/run_review.sh" 2>/dev/null \
      && grep -q -- "--effort max" "$SKILL_TARGET/scripts/run_review.sh" 2>/dev/null; then
-    ok "Opus 4.8 with max effort"
+    ok "Fable 5 with max effort"
   fi
 
   step "Coexistence"
