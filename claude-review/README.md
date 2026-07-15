@@ -1,6 +1,6 @@
 # claude-review (v2.2.0)
 
-Spec-driven cross-invocation code review using Claude Code CLI (`claude -p`, Opus 4.8, max effort). Phase A auto-explores codebase for Related code.
+Spec-driven cross-invocation code review using Claude Code CLI (`claude -p`, Fable 5, max effort). Phase A auto-explores codebase for Related code.
 
 ## What's new in v2.2.0
 
@@ -52,7 +52,7 @@ You: "claude review"
                                                  ↓
                   bash run_review.sh 1
                                                  ↓
-                  claude -p --bare --model claude-opus-4-8 --effort max \
+                  claude -p --bare --model claude-fable-5 --effort max \
                     --allowedTools "Read,Grep,Glob" \
                     --dangerously-skip-permissions
                                                  ↓

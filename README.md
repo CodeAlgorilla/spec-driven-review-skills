@@ -11,7 +11,7 @@
 A pair of Claude Code skills that turn "finished feature → reviewed feature → committed feature" into an explicit, spec-driven loop. Two engines are supported and coexist:
 
 - **codex-review** routes review through OpenAI Codex (gpt-5.6-sol, max reasoning)
-- **claude-review** routes review through a fresh `claude -p` invocation (Opus 4.8, max effort)
+- **claude-review** routes review through a fresh `claude -p` invocation (Fable 5, max effort)
 
 Each skill writes its own spec, has its own trigger phrases, and ends with a hard stop so the merge decision stays human.
 
@@ -76,7 +76,7 @@ These skills encode all three: spec as authoritative contract, auto-explored Rel
 │      │   codex-review   │        │  claude-review   │           │
 │      │                  │        │                  │           │
 │      │   codex exec     │        │   claude -p      │           │
-│      │   gpt-5.6-sol    │        │   Opus 4.8       │           │
+│      │   gpt-5.6-sol    │        │   Fable 5        │           │
 │      │   max effort     │        │   max effort     │           │
 │      │   --sandbox ro   │        │   --bare         │           │
 │      │                  │        │   --allowedTools │           │
@@ -111,7 +111,7 @@ You'll be asked which skill(s) to install:
 Two skills are available:
 
   1 codex-review   — uses OpenAI Codex (gpt-5.6-sol, max)
-  2 claude-review  — uses Claude Code (Opus 4.8, max effort)
+  2 claude-review  — uses Claude Code (Fable 5, max effort)
   3 Both           — recommended (they coexist + complement)
   0 Exit
 ```
@@ -204,7 +204,7 @@ Claude:  git commit ...
 |                          | codex-review                                       | claude-review                                  |
 |--------------------------|----------------------------------------------------|------------------------------------------------|
 | **Engine**               | `codex exec`                                       | `claude -p`                                    |
-| **Model**                | `gpt-5.6-sol`                                      | `claude-opus-4-8`                              |
+| **Model**                | `gpt-5.6-sol`                                      | `claude-fable-5`                               |
 | **Reasoning**            | `model_reasoning_effort=max`                       | `--effort max`                                 |
 | **Context isolation**    | `--sandbox read-only --ephemeral`                  | `--bare --allowedTools "Read,Grep,Glob"`       |
 | **Exploration tools**    | shell: `cat`, `grep`, `find`                       | Read, Grep, Glob                               |

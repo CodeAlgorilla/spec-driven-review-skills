@@ -1,7 +1,7 @@
 <!-- claude-review-policy -->
 ## Claude-review skill (fresh `claude -p` reviewer + auto-explored Related code)
 
-Fresh `claude -p` (Opus 4.8, max effort, bare) as reviewer. Coexists with codex-review, separate spec file. v2.2 adds auto-exploration of Related code during Phase A.
+Fresh `claude -p` (Fable 5, max effort, bare) as reviewer. Coexists with codex-review, separate spec file. v2.2 adds auto-exploration of Related code during Phase A.
 
 ### Phase A — Setup spec with auto-exploration
 
