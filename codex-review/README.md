@@ -1,6 +1,6 @@
 # codex-review (v1.5.0)
 
-Spec-driven code review using OpenAI Codex (gpt-5.5, xhigh reasoning). Phase A auto-explores codebase for Related code; Phase B runs review loop with hard-stop.
+Spec-driven code review using OpenAI Codex (gpt-5.6-sol, max reasoning). Phase A auto-explores codebase for Related code; Phase B runs review loop with hard-stop.
 
 ## What's new in v1.5.0
 

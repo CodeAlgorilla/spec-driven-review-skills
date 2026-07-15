@@ -46,7 +46,7 @@ Nothing yet.
 
 ### [1.0.0]
 
-- Initial release: gpt-5.5 + xhigh, auto-detect scope, hard-stop policy, Superpowers integration.
+- Initial release: gpt-5.6-sol + max, auto-detect scope, hard-stop policy, Superpowers integration.
 
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_review.sh — Send a git diff + context to Codex (gpt-5.5, xhigh reasoning) for review.
+# run_review.sh — Send a git diff + context to Codex (gpt-5.6-sol, max reasoning) for review.
 #
 # v1.4.0+: supports a "Related code" section in the spec. Files listed there
 # are read in full and included in the bundle. The reviewer can also use shell
@@ -246,7 +246,7 @@ CTX_PARTS=()
 CTX_SUMMARY=$(IFS=,; echo "${CTX_PARTS[*]:-none}")
 
 DIFF_LINES=$(echo "$DIFF" | wc -l)
-echo "[codex-review] gpt-5.5 (xhigh) — $DIFF_LINES diff lines, iter #$ITERATION, scope: $SCOPE, context: $CTX_SUMMARY" >&2
+echo "[codex-review] gpt-5.6-sol (max) — $DIFF_LINES diff lines, iter #$ITERATION, scope: $SCOPE, context: $CTX_SUMMARY" >&2
 
 render_context() {
   local has_spec=0
@@ -344,8 +344,8 @@ if ! REVIEW_OUTPUT=$(echo "$FULL_INPUT" | codex exec \
       --skip-git-repo-check \
       --sandbox read-only \
       --ephemeral \
-      -m gpt-5.5 \
-      -c model_reasoning_effort=xhigh \
+      -m gpt-5.6-sol \
+      -c model_reasoning_effort=max \
       - 2>"$CODEX_ERR"); then
   echo "STATUS: ERROR"
   echo "SUMMARY: codex exec failed."

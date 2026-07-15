@@ -155,7 +155,7 @@ Do NOT auto-commit, auto-merge, chain to `finishing-a-development-branch`, open 
 
 ## Coexistence with codex-review
 
-- **codex-review**: `.claude/review-spec.md`, `codex exec` (gpt-5.5)
+- **codex-review**: `.claude/review-spec.md`, `codex exec` (gpt-5.6-sol)
 - **claude-review**: `.claude/review-spec-claude.md`, `claude -p` (Opus 4.8)
 
 Both can run sequentially:

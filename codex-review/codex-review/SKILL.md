@@ -1,6 +1,6 @@
 ---
 name: codex-review
-description: Drives spec-driven code review using OpenAI Codex (gpt-5.5, xhigh) as external reviewer. Phase A scaffolds and auto-fills review spec (including auto-exploring the codebase for Related code) after writing-plans completes. Phase B runs review loop with spec + Related code + read-only shell exploration. Use PROACTIVELY at TWO points: (1) right after `superpowers:writing-plans`, OR when user starts implementing on a branch with no spec — draft spec including auto-discovered Related code, user confirms before coding; (2) when user explicitly requests review or signals merge prep. Trigger phrases (Phase B) are narrow and explicit — "codex review", "run codex review", "before I commit", "before I MR", "before I PR", "before merging". Does NOT auto-trigger on generic "I'm done" / "let's review" — those are too ambiguous. Also use when user explicitly asks ("scaffold review spec", "init review spec"). CRITICAL: after review returns CLEAN, STOP — do NOT auto-commit, auto-merge, or chain to `finishing-a-development-branch`. The user owns the merge decision.
+description: Drives spec-driven code review using OpenAI Codex (gpt-5.6-sol, max) as external reviewer. Phase A scaffolds and auto-fills review spec (including auto-exploring the codebase for Related code) after writing-plans completes. Phase B runs review loop with spec + Related code + read-only shell exploration. Use PROACTIVELY at TWO points: (1) right after `superpowers:writing-plans`, OR when user starts implementing on a branch with no spec — draft spec including auto-discovered Related code, user confirms before coding; (2) when user explicitly requests review or signals merge prep. Trigger phrases (Phase B) are narrow and explicit — "codex review", "run codex review", "before I commit", "before I MR", "before I PR", "before merging". Does NOT auto-trigger on generic "I'm done" / "let's review" — those are too ambiguous. Also use when user explicitly asks ("scaffold review spec", "init review spec"). CRITICAL: after review returns CLEAN, STOP — do NOT auto-commit, auto-merge, or chain to `finishing-a-development-branch`. The user owns the merge decision.
 
 ---
 
@@ -147,12 +147,12 @@ The script:
 2. Auto-detects scope
 3. Loads spec from `.claude/review-spec.md`
 4. Parses Related code section, reads each listed file in full
-5. Calls `codex exec --sandbox read-only -m gpt-5.5 -c model_reasoning_effort=xhigh`
+5. Calls `codex exec --sandbox read-only -m gpt-5.6-sol -c model_reasoning_effort=max`
 6. Returns verdict
 
 Stderr summary:
 ```
-[codex-review] gpt-5.5 (xhigh) — 102 diff lines, iter #1,
+[codex-review] gpt-5.6-sol (max) — 102 diff lines, iter #1,
   scope: feature branch '...' vs main,
   context: spec:.claude/review-spec.md,related:3files,commits
 ```
