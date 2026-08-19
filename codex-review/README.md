@@ -69,6 +69,7 @@ See SKILL.md for full details.
 - Model / effort: `~/.claude/skills/codex-review/scripts/run_review.sh`
 - Triggers / bypass: `~/.claude/CLAUDE.md` (`codex-review-policy` block)
 - Exploration budget: edit "Exploration budget" in `~/.claude/skills/codex-review/SKILL.md`
+- Spec inline budget: 60000 chars by default; set `CODEX_REVIEW_SPEC_BUDGET` to override. Longer specs are embedded truncated (flagged on stderr) and the reviewer is told to read the full spec file itself.
 
 ## Changelog
 

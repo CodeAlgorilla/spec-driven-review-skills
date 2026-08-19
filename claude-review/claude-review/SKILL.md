@@ -179,3 +179,4 @@ Both can run sequentially:
 - Model / effort / allowed tools: `~/.claude/skills/claude-review/scripts/run_review.sh`
 - Triggers / bypass: `~/.claude/CLAUDE.md` (`claude-review-policy` block)
 - Exploration depth: edit "Budget" in this file
+- Spec inline budget (chars of the spec embedded in the review bundle, default 60000): set `CLAUDE_REVIEW_SPEC_BUDGET`. Oversized specs are truncated with a stderr warning, and the reviewer is instructed to Read the full spec file.

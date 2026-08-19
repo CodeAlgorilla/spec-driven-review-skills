@@ -78,6 +78,7 @@ Both auto-explore for Related code in Phase A. Lists can differ if you want diff
 - Model / effort / allowed tools: `~/.claude/skills/claude-review/scripts/run_review.sh`
 - Triggers / bypass: `~/.claude/CLAUDE.md` (`claude-review-policy` block)
 - Exploration budget: edit `~/.claude/skills/claude-review/SKILL.md`
+- Spec inline budget: 60000 chars by default; set `CLAUDE_REVIEW_SPEC_BUDGET` to override. Longer specs are embedded truncated (flagged on stderr) and the reviewer is told to Read the full spec file itself.
 
 ## Changelog
 
