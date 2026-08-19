@@ -5,6 +5,10 @@
 # v2.1.0+: supports a "Related code" section in the spec. Files listed there
 # are read in full and included in the bundle. The reviewer may also use
 # Read/Grep/Glob tools to explore beyond the bundle when needed.
+#
+# Spec inline budget: 60000 chars by default (CLAUDE_REVIEW_SPEC_BUDGET
+# overrides). Longer specs are embedded truncated, flagged on stderr, and the
+# reviewer is told to read the full spec file itself.
 
 set -euo pipefail
 
@@ -124,19 +128,32 @@ backtick_fence() {
   printf '%*s' "$((run + 1))" '' | tr ' ' '`'
 }
 
-SPEC_TEXT=""; SPEC_PATH=""; SPEC_SCOPE=""
+# Spec. Inline budget is in chars; override with CLAUDE_REVIEW_SPEC_BUDGET.
+SPEC_BUDGET="${CLAUDE_REVIEW_SPEC_BUDGET:-60000}"
+case "$SPEC_BUDGET" in
+  ''|*[!0-9]*) SPEC_BUDGET=60000 ;;
+esac
+if [ ${#SPEC_BUDGET} -gt 9 ]; then SPEC_BUDGET=60000; fi
+# Force base-10: a leading zero would octal-parse in ${s:0:$max} arithmetic.
+SPEC_BUDGET=$((10#$SPEC_BUDGET))
+SPEC_TEXT=""; SPEC_FULL=""; SPEC_PATH=""; SPEC_ABS=""; SPEC_SCOPE=""; SPEC_TRUNCATED=0
 for spec_candidate in "$REPO_ROOT/.claude/review-spec-claude.md" "$REPO_ROOT/.claude-review/spec.md"; do
   if [ -f "$spec_candidate" ]; then
     SPEC_PATH="${spec_candidate#"$REPO_ROOT"/}"
+    SPEC_ABS="$spec_candidate"
     [[ "$spec_candidate" == *"/.claude/"* ]] && SPEC_SCOPE="branch-level" || SPEC_SCOPE="project-level"
-    SPEC_TEXT=$(truncate_str "$(cat "$spec_candidate")" 12000)
+    SPEC_FULL=$(cat "$spec_candidate" 2>/dev/null || true)
+    SPEC_TEXT=$(truncate_str "$SPEC_FULL" "$SPEC_BUDGET")
+    if [ ${#SPEC_FULL} -gt "$SPEC_BUDGET" ]; then SPEC_TRUNCATED=1; fi
     break
   fi
 done
 
 RELATED_CODE_TEXT=""; RELATED_LOADED=(); RELATED_SKIPPED=()
 if [ -n "$SPEC_TEXT" ]; then
-  RELATED_SECTION=$(echo "$SPEC_TEXT" | awk '/^## Related code/ { in_section=1; next } /^## / { in_section=0 } in_section==1 { print }')
+  # Parse from the FULL spec, not the truncated embed: the template puts
+  # "## Related code" near the end, where truncation would silently drop it.
+  RELATED_SECTION=$(echo "$SPEC_FULL" | awk '/^## Related code/ { in_section=1; next } /^## / { in_section=0 } in_section==1 { print }')
   RELATED_FILES=()
   while IFS= read -r line; do
     stripped="${line#-}"
@@ -148,7 +165,11 @@ if [ -n "$SPEC_TEXT" ]; then
     RELATED_FILES+=("$stripped")
   done <<< "$RELATED_SECTION"
 
-  TOTAL_BUDGET=40000; PER_FILE_BUDGET=8000; bytes_loaded=0
+  # Sized to honour this script's documented contract ("read in full"). The old
+  # 40000/8000 pair silently truncated ordinary sources and dropped whole files
+  # once the running total was exhausted — the stderr `related:Nfiles` count was
+  # the only signal. These remain a backstop against generated/vendored blobs.
+  TOTAL_BUDGET=400000; PER_FILE_BUDGET=60000; bytes_loaded=0
   # bash 3.2-safe: expands to nothing (not an "unbound variable" error) when the array is empty
   for relpath in ${RELATED_FILES[@]+"${RELATED_FILES[@]}"}; do
     case "/$relpath/" in
@@ -181,7 +202,9 @@ fi
 COMMITS_TEXT=""
 if [ -n "$COMMIT_RANGE" ]; then
   RAW_COMMITS=$(git log --no-merges --format='─── %h %s%n%b%n' "$COMMIT_RANGE" 2>/dev/null || true)
-  [ -n "$RAW_COMMITS" ] && COMMITS_TEXT=$(truncate_str "$RAW_COMMITS" 4000)
+  # 4000 covered only a handful of commits with bodies; a long branch lost most
+  # of its history — exactly where per-task rationale lives.
+  [ -n "$RAW_COMMITS" ] && COMMITS_TEXT=$(truncate_str "$RAW_COMMITS" 60000)
 fi
 
 PLAN_TEXT=""; PLAN_PATH=""
@@ -190,7 +213,7 @@ for plan_dir in "$REPO_ROOT/.claude/plans" "$REPO_ROOT/.superpowers/plans" "$REP
     LATEST_PLAN=$(ls -t "$plan_dir"/*.md 2>/dev/null | head -1 || true)
     if [ -n "$LATEST_PLAN" ] && [ -f "$LATEST_PLAN" ]; then
       PLAN_PATH="${LATEST_PLAN#"$REPO_ROOT"/}"
-      PLAN_TEXT=$(truncate_str "$(cat "$LATEST_PLAN")" 6000)
+      PLAN_TEXT=$(truncate_str "$(cat "$LATEST_PLAN")" 60000)
       break
     fi
   fi
@@ -198,11 +221,14 @@ done
 
 PROJECT_CLAUDE_TEXT=""
 if [ -z "$SPEC_TEXT" ] && [ -f "$REPO_ROOT/CLAUDE.md" ]; then
-  PROJECT_CLAUDE_TEXT=$(truncate_str "$(head -200 "$REPO_ROOT/CLAUDE.md")" 4000)
+  PROJECT_CLAUDE_TEXT=$(truncate_str "$(head -600 "$REPO_ROOT/CLAUDE.md")" 20000)
 fi
 
+SPEC_CTX="spec:$SPEC_PATH"
+[ "$SPEC_TRUNCATED" -eq 1 ]        && SPEC_CTX="spec:$SPEC_PATH(TRUNCATED:${#SPEC_FULL}->${SPEC_BUDGET}ch)"
+
 CTX_PARTS=()
-[ -n "$SPEC_TEXT" ]                && CTX_PARTS+=("spec:$SPEC_PATH")
+[ -n "$SPEC_TEXT" ]                && CTX_PARTS+=("$SPEC_CTX")
 [ ${#RELATED_LOADED[@]} -gt 0 ]    && CTX_PARTS+=("related:${#RELATED_LOADED[@]}files")
 [ -n "$EXTRA_CONTEXT" ]            && CTX_PARTS+=("user")
 [ -n "$COMMITS_TEXT" ]             && CTX_PARTS+=("commits")
@@ -223,6 +249,10 @@ render_context() {
     echo ""
     echo "Source file: \`$SPEC_PATH\`"
     echo ""; echo "---"; echo ""; echo "$SPEC_TEXT"; echo ""; echo "---"; echo ""
+    if [ "$SPEC_TRUNCATED" -eq 1 ]; then
+      echo "**SPEC TRUNCATED:** only the first $SPEC_BUDGET of ${#SPEC_FULL} chars are shown above. The FULL spec is at \`$SPEC_ABS\` — Read it in full before reviewing."
+      echo ""
+    fi
   fi
   if [ -n "$RELATED_CODE_TEXT" ]; then
     echo "### Related code (context only — NOT under review)"

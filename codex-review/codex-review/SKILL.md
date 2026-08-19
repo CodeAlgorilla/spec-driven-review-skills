@@ -223,3 +223,4 @@ Only proceed when explicitly asked.
 - **Model / effort**: `~/.claude/skills/codex-review/scripts/run_review.sh`
 - **Trigger phrases (narrow → wider, or wider → narrower)**: `~/.claude/CLAUDE.md` (the `codex-review-policy` block)
 - **Exploration depth in Phase A**: edit "Exploration budget" in this file
+- **Spec inline budget** (chars of the spec embedded in the review bundle, default 60000): set `CODEX_REVIEW_SPEC_BUDGET`. Oversized specs are truncated with a stderr warning, and the reviewer is instructed to read the full spec file via its read-only shell.

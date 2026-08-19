@@ -8,7 +8,13 @@ The two skills evolve in parallel and version independently. This file consolida
 
 ## [Unreleased]
 
-Nothing yet.
+Both skills (`run_review.sh`), mirrored:
+
+- **Fixed**: `## Related code` is now parsed from the full spec file, not the truncated embed. Previously a spec longer than the inline budget silently dropped (or corrupted) the Related-code file list, since that section sits near the end of the template.
+- **Changed**: spec inline budget raised 12000 → 60000 chars, overridable via `CODEX_REVIEW_SPEC_BUDGET` / `CLAUDE_REVIEW_SPEC_BUDGET` (values are read as base-10; non-numeric or >9-digit values fall back to the default).
+- **Changed**: context budgets raised (ported from a live hot-patch of the installed codex-review script, 2026-08-07): Related code 40000 total / 8000 per-file → 400000 / 60000 chars; commits 4000 → 60000; plan 6000 → 60000; project CLAUDE.md excerpt `head -200`/4000 → `head -600`/20000.
+- **Added**: when a spec still exceeds the budget, the bundle carries a `**SPEC TRUNCATED:**` note with the absolute spec path telling the reviewer to read the full file (codex: read-only shell; claude: Read tool).
+- **Added**: the stderr status line marks truncation, e.g. `spec:.claude/review-spec.md(TRUNCATED:70000->60000ch)`, so the orchestrator sees it at launch time.
 
 ---
 
