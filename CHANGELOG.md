@@ -16,6 +16,10 @@ Both skills (`run_review.sh`), mirrored:
 - **Added**: when a spec still exceeds the budget, the bundle carries a `**SPEC TRUNCATED:**` note with the absolute spec path telling the reviewer to read the full file (codex: read-only shell; claude: Read tool).
 - **Added**: the stderr status line marks truncation, e.g. `spec:.claude/review-spec.md(TRUNCATED:70000->60000ch)`, so the orchestrator sees it at launch time.
 
+Repo:
+
+- **Added**: `tests/test_run_review.sh` — behavioral test suite (74 assertions) covering both scripts' spec/Related/context budget handling via shim reviewer binaries; needs no codex/claude CLI. Not installed by the installers.
+
 ---
 
 ## codex-review
