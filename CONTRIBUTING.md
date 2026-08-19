@@ -8,7 +8,7 @@ Thanks for considering a contribution.
 
 2. **Keep the two skills mirrored.** Both should have the same external behavior unless there's a specific reason for divergence (e.g. `--allowedTools` is claude-only because codex uses `--sandbox read-only` instead). When you add a feature to one, the other usually needs the parallel update.
 
-3. **Test before PR'ing.** Run `bash install.sh verify` on a clean machine. Test that:
+3. **Test before PR'ing.** Run `bash tests/test_run_review.sh` — it exercises both `run_review.sh` scripts against throwaway repos with shim reviewer binaries (no codex/claude CLI needed) and must report 0 failed. Then run `bash install.sh verify` on a clean machine. Test that:
    - Both `install.sh` and the sub-installers work
    - Idempotent re-install preserves user content
    - Uninstall is clean
